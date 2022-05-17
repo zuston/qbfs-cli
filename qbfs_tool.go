@@ -58,7 +58,20 @@ func main() {
 						Name:  "list",
 						Usage: "list cluster info",
 						Action: func(context *cli.Context) error {
-							fmt.Println("Not be supported yet.")
+							client := newRouterServerClient(context)
+							clusterInfos, err := client.listClusterInfos()
+							if err != nil {
+								return err
+							}
+
+							table := tablewriter.NewWriter(os.Stdout)
+							table.SetHeader([]string{"Cluster ID", "FS Scheme", "Trash QBFS Path", "State"})
+
+							for _, info := range clusterInfos {
+								table.Append([]string{info.ClusterIdentifier.FsAuthority, info.ClusterIdentifier.FsScheme, info.QBFSTrashPrefix, info.State})
+							}
+							table.Render() // Send output
+
 							return nil
 						},
 					},
@@ -160,6 +173,10 @@ func newRouterServerClient(context *cli.Context) *RouterMetastoreClient {
 	}
 }
 
+/**
+---------------------------Response Model----------------------------
+*/
+
 type MountInfo struct {
 	Path       string `json:"path"`
 	Attributes int    `json:"attributes"`
@@ -173,6 +190,17 @@ type MountInfo struct {
 	ReplicaFsConfig  string
 
 	SwitchMode byte `json:"switchMode"`
+}
+
+type ClusterInfo struct {
+	ClusterIdentifier ClusterIdentifier `json:"clusterIdentifier"`
+	QBFSTrashPrefix   string            `json:"trashPrefix"`
+	State             string            `json:"state"`
+}
+
+type ClusterIdentifier struct {
+	FsAuthority string
+	FsScheme    string
 }
 
 type RouterMetastoreClient struct {
@@ -203,10 +231,28 @@ func (metastoreClient *RouterMetastoreClient) listMounts() ([]MountInfo, error) 
 	return aggMountInfos.Mounts, nil
 }
 
-func httpPost(url string, token string) ([]byte, error) {
+/**
+The method is to retrieve the mounting cluster infos
+*/
+func (metastoreClient *RouterMetastoreClient) listClusterInfos() ([]ClusterInfo, error) {
+	bytesResult, err := httpGet(metastoreClient.routerApiPrefix+"/cluster/meta/list", metastoreClient.routerToken)
+
+	if err != nil {
+		return []ClusterInfo{}, err
+	}
+
+	var clusterInfos []ClusterInfo
+	if err := json.Unmarshal(bytesResult, &clusterInfos); err != nil {
+		return []ClusterInfo{}, err
+	}
+
+	return clusterInfos, nil
+}
+
+func httpCall(method string, url string, token string) ([]byte, error) {
 	httpClient := &http.Client{}
 
-	req, err := http.NewRequest("POST", url, nil)
+	req, err := http.NewRequest(method, url, nil)
 
 	if err != nil {
 		return nil, err
@@ -229,4 +275,12 @@ func httpPost(url string, token string) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+func httpPost(url string, token string) ([]byte, error) {
+	return httpCall("POST", url, token)
+}
+
+func httpGet(url string, token string) ([]byte, error) {
+	return httpCall("GET", url, token)
 }
