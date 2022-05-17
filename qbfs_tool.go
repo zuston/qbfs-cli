@@ -65,10 +65,11 @@ func main() {
 							}
 
 							table := tablewriter.NewWriter(os.Stdout)
-							table.SetHeader([]string{"Cluster ID", "FS Scheme", "Trash QBFS Path", "State"})
+							table.SetHeader([]string{"FS Scheme", "FS Authority", "Trash FS Path", "State"})
 
 							for _, info := range clusterInfos {
-								table.Append([]string{info.ClusterIdentifier.FsAuthority, info.ClusterIdentifier.FsScheme, info.QBFSTrashPrefix, info.State})
+								trashPath := fmt.Sprintf("%s://%s%s", info.ClusterIdentifier.FsScheme, info.ClusterIdentifier.FsAuthority, info.TrashPrefix)
+								table.Append([]string{info.ClusterIdentifier.FsScheme, info.ClusterIdentifier.FsAuthority, trashPath, info.State})
 							}
 							table.Render() // Send output
 
@@ -194,7 +195,7 @@ type MountInfo struct {
 
 type ClusterInfo struct {
 	ClusterIdentifier ClusterIdentifier `json:"clusterIdentifier"`
-	QBFSTrashPrefix   string            `json:"trashPrefix"`
+	TrashPrefix       string            `json:"trashPrefix"`
 	State             string            `json:"state"`
 }
 
@@ -262,7 +263,15 @@ func httpCall(method string, url string, token string) ([]byte, error) {
 	req.Header.Set("token", token)
 
 	resp, err := httpClient.Do(req)
-	defer resp.Body.Close()
+	defer func() {
+		if err == nil {
+			resp.Body.Close()
+		}
+	}()
+
+	if err != nil {
+		return nil, err
+	}
 
 	if resp.StatusCode != 200 {
 		return nil, errors.New(fmt.Sprintf("Errors on requesting url of [%s], status code: [%d]", url, resp.StatusCode))
