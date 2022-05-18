@@ -121,7 +121,11 @@ func main() {
 							table := tablewriter.NewWriter(os.Stdout)
 							table.SetHeader([]string{"QBFS URI", "Target FS Path", "Target FS ClusterID"})
 
+							clusterFilterCondition := context.String("filter-cluster-id")
 							for _, v := range mounts {
+								if clusterFilterCondition != "" && v.TargetClusterID != clusterFilterCondition {
+									continue
+								}
 								table.Append([]string{v.Path, v.TargetFsPath, v.TargetClusterID})
 							}
 							table.Render() // Send output
