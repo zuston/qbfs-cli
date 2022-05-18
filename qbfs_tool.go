@@ -115,19 +115,22 @@ func main() {
 								return err
 							}
 
-							fmt.Println("-------------------------------")
-							fmt.Println("Mount entry size: ", len(mounts))
-
 							table := tablewriter.NewWriter(os.Stdout)
 							table.SetHeader([]string{"QBFS URI", "Target FS Path", "Target FS ClusterID"})
 
 							clusterFilterCondition := context.String("filter-cluster-id")
+							lineCount := 0
 							for _, v := range mounts {
 								if clusterFilterCondition != "" && v.TargetClusterID != clusterFilterCondition {
 									continue
 								}
 								table.Append([]string{v.Path, v.TargetFsPath, v.TargetClusterID})
+								lineCount += 1
 							}
+
+							fmt.Println("-------------------------------")
+							fmt.Println("Mount entry size: ", lineCount)
+
 							table.Render() // Send output
 							return nil
 						},
