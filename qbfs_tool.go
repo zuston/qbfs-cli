@@ -16,6 +16,7 @@ import (
 
 const ServerUrlKey = "server_url"
 const ServerToken = "server_token"
+const ConfPath = "conf_path"
 
 const Logo = `
 ██████╗ ██████╗ ███████╗███████╗
@@ -47,6 +48,8 @@ func main() {
 		Flags: []cli.Flag{
 			urlFlag,
 			tokenFlag,
+			&cli.StringFlag{Name: ConfPath, Aliases: []string{"p"}, Required: false,
+				Usage: "conf path to store server connection url"},
 		},
 		Commands: []*cli.Command{
 			{
@@ -138,14 +141,8 @@ func main() {
 	}
 }
 
-func getConfFromDefaultFile() (*string, *string) {
-	u, err := user.Current()
-	if err != nil {
-		panic(err)
-	}
-	path := u.HomeDir + "/" + DefaultConfYamlPathDir
-
-	yamlFile, err := ioutil.ReadFile(path)
+func getConfFromFile(confPath string) (*string, *string) {
+	yamlFile, err := ioutil.ReadFile(confPath)
 
 	if err != nil {
 		return nil, nil
@@ -167,10 +164,28 @@ func getConfFromDefaultFile() (*string, *string) {
 	return &conf.ServerUrl, &conf.ServerToken
 }
 
+func getConfFromDefaultFile() (*string, *string) {
+	u, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	path := u.HomeDir + "/" + DefaultConfYamlPathDir
+
+	return getConfFromFile(path)
+}
+
 func newRouterServerClient(context *cli.Context) *RouterMetastoreClient {
+	var url = context.String(ServerUrlKey)
+	var token = context.String(ServerToken)
+	if len(context.String(ConfPath)) != 0 {
+		url1, token2 := getConfFromFile(context.String(ConfPath))
+		url = *url1
+		token = *token2
+	}
+
 	return &RouterMetastoreClient{
-		routerApiPrefix: context.String(ServerUrlKey),
-		routerToken:     context.String(ServerToken),
+		routerApiPrefix: url,
+		routerToken:     token,
 	}
 }
 
