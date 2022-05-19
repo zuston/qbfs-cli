@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"time"
 )
 
 const ServerUrlKey = "server_url"
@@ -52,6 +53,24 @@ func main() {
 				Usage: "conf path to store server connection url"},
 		},
 		Commands: []*cli.Command{
+			{
+				Name:    "service",
+				Aliases: []string{"s"},
+				Usage:   "options for router-server service",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "state",
+						Usage: "show the router-server service state",
+						Flags: []cli.Flag{
+							&cli.IntFlag{Name: "check-number", Aliases: []string{"n"}, Value: 5},
+						},
+						Action: func(context *cli.Context) error {
+							serviceHealthCheck(context)
+							return nil
+						},
+					},
+				},
+			},
 			{
 				Name:    "cluster",
 				Aliases: []string{"c"},
@@ -146,6 +165,72 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func calTimeFunc(action func() error, number int) (int64, error) {
+	stime := time.Now()
+	for i := 0; i < number; i++ {
+		err := action()
+		if err != nil {
+			return -1, err
+		}
+	}
+	cost := time.Since(stime)
+	return cost.Milliseconds() / int64(number), nil
+}
+
+func serviceHealthCheck(ctx *cli.Context) {
+	client := newRouterServerClient(ctx)
+
+	type ApiState struct {
+		apiName        string
+		err            error
+		requestAvgTime int64
+	}
+	resultChan := make(chan ApiState, 2)
+
+	number := ctx.Int("check-number")
+
+	go func() {
+		avgTime, err := calTimeFunc(
+			func() error {
+				_, err := client.listMounts()
+				return err
+			}, number)
+
+		resultChan <- ApiState{
+			"mount list",
+			err,
+			avgTime,
+		}
+	}()
+	go func() {
+		avgTime, err := calTimeFunc(
+			func() error {
+				_, err := client.listClusterInfos()
+				return err
+			}, number)
+
+		resultChan <- ApiState{
+			"cluster list",
+			err,
+			avgTime,
+		}
+	}()
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"API Name", "State", "Avg Time(ms)/Number"})
+
+	for i := 0; i < 2; i++ {
+		result := <-resultChan
+		var state = "OK"
+		if result.err != nil {
+			state = "FAIL"
+		}
+		table.Append([]string{result.apiName, state, fmt.Sprintf("%v(ms)/%d", result.requestAvgTime, number)})
+	}
+
+	table.Render() // Send output
 }
 
 func getConfFromFile(confPath string) (*string, *string) {
