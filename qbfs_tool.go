@@ -1,7 +1,6 @@
 package main
 
 import (
-	"awesomeProject/core"
 	"encoding/json"
 	"fmt"
 	"github.com/olekukonko/tablewriter"
@@ -12,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/user"
+	"qbfs-cli/core"
 	"strings"
 	"time"
 )

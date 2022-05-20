@@ -1,4 +1,4 @@
-module awesomeProject
+module qbfs-cli
 
 go 1.17
 
