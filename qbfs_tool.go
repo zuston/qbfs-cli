@@ -176,7 +176,18 @@ func fsResolve(context *cli.Context) error {
 	// Show it.
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"QBFS URI", "Resolved Target FS Path"})
+
+	headers := []string{
+		"QBFS URI",
+		"Resolved Target FS Path",
+	}
+	if reserve {
+		headers = []string{
+			"Target FS Path",
+			"Reverse Resolved QBFS URI",
+		}
+	}
+	table.SetHeader(headers)
 
 	for k, v := range resultMap {
 		table.Append([]string{k, v})
@@ -208,27 +219,47 @@ func resolvePath(mounts []core.MountInfo, path string, reserve bool) string {
 	if err != nil {
 		return "Path is not standard fs uri."
 	}
-	if urlpath.Scheme != "qbfs" {
-		return "Path should be QBFS scheme."
-	}
 
-	urlWithoutScheme := urlpath.Host + urlpath.Path
 	var bestMatchedMount core.MountInfo
 	var bestMatchedLen = -1
+
+	if !reserve {
+		if urlpath.Scheme != "qbfs" {
+			return "Path should be QBFS scheme."
+		}
+
+		urlWithoutScheme := urlpath.Host + urlpath.Path
+		for _, mount := range mounts {
+			mountPath := strings.TrimSpace(mount.Path)
+			if strings.HasPrefix(urlWithoutScheme, mountPath) && bestMatchedLen < len(mountPath) {
+				bestMatchedLen = len(mountPath)
+				bestMatchedMount = mount
+			}
+		}
+
+		if bestMatchedLen == -1 {
+			return "Not found."
+		}
+
+		matchedPathPrefix := bestMatchedMount.Path
+		return bestMatchedMount.TargetFsPath + strings.TrimPrefix(urlWithoutScheme, matchedPathPrefix)
+	}
+
+	/**
+	Reverse resolve to get the virtual QBFS path.
+	*/
 	for _, mount := range mounts {
-		mountPath := strings.TrimSpace(mount.Path)
-		if strings.HasPrefix(urlWithoutScheme, mountPath) && bestMatchedLen < len(mountPath) {
-			bestMatchedLen = len(mountPath)
+		targetPath := mount.TargetFsPath
+		if strings.HasPrefix(path, targetPath) && bestMatchedLen < len(targetPath) {
+			bestMatchedLen = len(targetPath)
 			bestMatchedMount = mount
 		}
 	}
-
 	if bestMatchedLen == -1 {
 		return "Not found."
 	}
 
-	matchedPathPrefix := bestMatchedMount.Path
-	return bestMatchedMount.TargetFsPath + strings.TrimPrefix(urlWithoutScheme, matchedPathPrefix)
+	return "qbfs://" + bestMatchedMount.Path + "" + strings.TrimPrefix(path, bestMatchedMount.TargetFsPath)
 }
 
 func clusterList(context *cli.Context) error {
