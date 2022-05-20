@@ -1,15 +1,14 @@
 package main
 
 import (
+	"awesomeProject/core"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"net/url"
 	"os"
 	"os/user"
@@ -159,7 +158,7 @@ func main() {
 }
 
 func fsResolve(context *cli.Context) error {
-	mounts, err := newRouterServerClient(context).listMounts()
+	mounts, err := newRouterServerClient(context).ListMounts()
 	if err != nil {
 		return err
 	}
@@ -204,7 +203,7 @@ qbfs://c2/b/example.txt		=>	hdfs://cluster-2/system/example.txt
 
 The same as 'reverse resolve'
 */
-func resolvePath(mounts []MountInfo, path string, reserve bool) string {
+func resolvePath(mounts []core.MountInfo, path string, reserve bool) string {
 	urlpath, err := url.Parse(path)
 	if err != nil {
 		return "Path is not standard fs uri."
@@ -214,7 +213,7 @@ func resolvePath(mounts []MountInfo, path string, reserve bool) string {
 	}
 
 	urlWithoutScheme := urlpath.Host + urlpath.Path
-	var bestMatchedMount MountInfo
+	var bestMatchedMount core.MountInfo
 	var bestMatchedLen = -1
 	for _, mount := range mounts {
 		mountPath := strings.TrimSpace(mount.Path)
@@ -234,7 +233,7 @@ func resolvePath(mounts []MountInfo, path string, reserve bool) string {
 
 func clusterList(context *cli.Context) error {
 	client := newRouterServerClient(context)
-	clusterInfos, err := client.listClusterInfos()
+	clusterInfos, err := client.ListClusterInfos()
 	if err != nil {
 		return err
 	}
@@ -252,7 +251,7 @@ func clusterList(context *cli.Context) error {
 }
 
 func mountList(context *cli.Context) error {
-	var mounts, err = newRouterServerClient(context).listMounts()
+	var mounts, err = newRouterServerClient(context).ListMounts()
 	if err != nil {
 		return err
 	}
@@ -282,7 +281,7 @@ func mountDump(context *cli.Context) error {
 	if outputFilePath == "" {
 		outputFilePath, _ = os.Getwd()
 	}
-	mounts, err := newRouterServerClient(context).listMounts()
+	mounts, err := newRouterServerClient(context).ListMounts()
 	if err != nil {
 		return err
 	}
@@ -330,7 +329,7 @@ func serviceHealthCheck(ctx *cli.Context) {
 	go func() {
 		avgTime, err := calTimeFunc(
 			func() error {
-				_, err := client.listMounts()
+				_, err := client.ListMounts()
 				return err
 			}, number)
 
@@ -343,7 +342,7 @@ func serviceHealthCheck(ctx *cli.Context) {
 	go func() {
 		avgTime, err := calTimeFunc(
 			func() error {
-				_, err := client.listClusterInfos()
+				_, err := client.ListClusterInfos()
 				return err
 			}, number)
 
@@ -369,6 +368,31 @@ func serviceHealthCheck(ctx *cli.Context) {
 	table.Render() // Send output
 }
 
+func newRouterServerClient(context *cli.Context) *core.RouterMetastoreClient {
+	var url = context.String(ServerUrlKey)
+	var token = context.String(ServerToken)
+	if len(context.String(ConfPath)) != 0 {
+		url1, token2 := getConfFromFile(context.String(ConfPath))
+		url = *url1
+		token = *token2
+	}
+
+	return &core.RouterMetastoreClient{
+		RouterApiPrefix: url,
+		RouterToken:     token,
+	}
+}
+
+func getConfFromDefaultFile() (*string, *string) {
+	u, err := user.Current()
+	if err != nil {
+		panic(err)
+	}
+	path := u.HomeDir + "/" + DefaultConfYamlPathDir
+
+	return getConfFromFile(path)
+}
+
 func getConfFromFile(confPath string) (*string, *string) {
 	yamlFile, err := ioutil.ReadFile(confPath)
 
@@ -390,149 +414,4 @@ func getConfFromFile(confPath string) (*string, *string) {
 	}
 
 	return &conf.ServerUrl, &conf.ServerToken
-}
-
-func getConfFromDefaultFile() (*string, *string) {
-	u, err := user.Current()
-	if err != nil {
-		panic(err)
-	}
-	path := u.HomeDir + "/" + DefaultConfYamlPathDir
-
-	return getConfFromFile(path)
-}
-
-func newRouterServerClient(context *cli.Context) *RouterMetastoreClient {
-	var url = context.String(ServerUrlKey)
-	var token = context.String(ServerToken)
-	if len(context.String(ConfPath)) != 0 {
-		url1, token2 := getConfFromFile(context.String(ConfPath))
-		url = *url1
-		token = *token2
-	}
-
-	return &RouterMetastoreClient{
-		routerApiPrefix: url,
-		routerToken:     token,
-	}
-}
-
-/**
----------------------------Response Model----------------------------
-*/
-
-type MountInfo struct {
-	Path       string `json:"path"`
-	Attributes int    `json:"attributes"`
-
-	TargetClusterID string `json:"targetClusterID"`
-	TargetFsPath    string `json:"targetFsPath"`
-	TargetFsConfig  string
-
-	ReplicaFsPath    string `json:"replicaFsPath"`
-	ReplicaClusterID string `json:"replicaClusterID"`
-	ReplicaFsConfig  string
-
-	SwitchMode byte `json:"switchMode"`
-}
-
-type ClusterInfo struct {
-	ClusterIdentifier ClusterIdentifier `json:"clusterIdentifier"`
-	TrashPrefix       string            `json:"trashPrefix"`
-	State             string            `json:"state"`
-}
-
-type ClusterIdentifier struct {
-	FsAuthority string
-	FsScheme    string
-}
-
-type RouterMetastoreClient struct {
-	routerApiPrefix string
-	routerToken     string
-}
-
-/**
-The method is to retrieve the remote mount table
-*/
-func (metastoreClient *RouterMetastoreClient) listMounts() ([]MountInfo, error) {
-	bytesResult, err := httpPost(metastoreClient.routerApiPrefix+"/mount/list", metastoreClient.routerToken)
-
-	if err != nil {
-		return []MountInfo{}, err
-	}
-
-	type AggMountInfos struct {
-		FsConfigs map[string]string `json:"fsConfigs"`
-		Mounts    []MountInfo
-	}
-
-	var aggMountInfos *AggMountInfos
-	if err := json.Unmarshal(bytesResult, &aggMountInfos); err != nil {
-		return []MountInfo{}, err
-	}
-
-	return aggMountInfos.Mounts, nil
-}
-
-/**
-The method is to retrieve the mounting cluster infos
-*/
-func (metastoreClient *RouterMetastoreClient) listClusterInfos() ([]ClusterInfo, error) {
-	bytesResult, err := httpGet(metastoreClient.routerApiPrefix+"/cluster/meta/list", metastoreClient.routerToken)
-
-	if err != nil {
-		return []ClusterInfo{}, err
-	}
-
-	var clusterInfos []ClusterInfo
-	if err := json.Unmarshal(bytesResult, &clusterInfos); err != nil {
-		return []ClusterInfo{}, err
-	}
-
-	return clusterInfos, nil
-}
-
-func httpCall(method string, url string, token string) ([]byte, error) {
-	httpClient := &http.Client{}
-
-	req, err := http.NewRequest(method, url, nil)
-
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Content-Type", "application/json;charset=UTF-8")
-	req.Header.Set("token", token)
-
-	resp, err := httpClient.Do(req)
-	defer func() {
-		if err == nil {
-			resp.Body.Close()
-		}
-	}()
-
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != 200 {
-		return nil, errors.New(fmt.Sprintf("Errors on requesting url of [%s], status code: [%d]", url, resp.StatusCode))
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("Errors on reading all data."))
-	}
-
-	return body, nil
-}
-
-func httpPost(url string, token string) ([]byte, error) {
-	return httpCall("POST", url, token)
-}
-
-func httpGet(url string, token string) ([]byte, error) {
-	return httpCall("GET", url, token)
 }
