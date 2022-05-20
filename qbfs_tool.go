@@ -10,8 +10,10 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/user"
+	"strings"
 	"time"
 )
 
@@ -53,6 +55,22 @@ func main() {
 				Usage: "conf path to store server connection url"},
 		},
 		Commands: []*cli.Command{
+			{
+				Name:  "fs",
+				Usage: "options for qbfs path",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "resolve",
+						Usage: "resolve the qbfs path to real dest path, including reverse resolve",
+						Flags: []cli.Flag{
+							&cli.BoolFlag{Name: "reverse", Aliases: []string{"x"}, Value: false},
+						},
+						Action: func(context *cli.Context) error {
+							return fsResolve(context)
+						},
+					},
+				},
+			},
 			{
 				Name:    "service",
 				Aliases: []string{"s"},
@@ -138,6 +156,80 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func fsResolve(context *cli.Context) error {
+	mounts, err := newRouterServerClient(context).listMounts()
+	if err != nil {
+		return err
+	}
+
+	reserve := context.Bool("reverse")
+	args := context.Args()
+
+	resultMap := make(map[string]string, args.Len())
+
+	for i := 0; i < args.Len(); i++ {
+		path := args.Get(i)
+		resultMap[path] = resolvePath(mounts, path, reserve)
+	}
+
+	// Show it.
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"QBFS URI", "Resolved Target FS Path"})
+
+	for k, v := range resultMap {
+		table.Append([]string{k, v})
+	}
+
+	table.Render() // Send output
+
+	return nil
+}
+
+/**
+This function is to resolve the QBFS Path to real dest path.
+
+The mount table as follows:
+/c1/a	=>	hdfs://cluster-1/system
+/c1/a/b	=>	hdfs://cluster-1/log
+/c2/b	=>	hdfs://cluster-2/system
+
+QBFS Path will be resolved as follows
+
+qbfs://c1/a/example.txt		=> 	hdfs://cluster-1/system/example.txt
+qbfs://c1/a/b/example.txt	=>	hdfs://cluster-1/log/example.txt
+qbfs://c2/b/example.txt		=>	hdfs://cluster-2/system/example.txt
+
+The same as 'reverse resolve'
+*/
+func resolvePath(mounts []MountInfo, path string, reserve bool) string {
+	urlpath, err := url.Parse(path)
+	if err != nil {
+		return "Path is not standard fs uri."
+	}
+	if urlpath.Scheme != "qbfs" {
+		return "Path should be QBFS scheme."
+	}
+
+	urlWithoutScheme := urlpath.Host + urlpath.Path
+	var bestMatchedMount MountInfo
+	var bestMatchedLen = -1
+	for _, mount := range mounts {
+		mountPath := strings.TrimSpace(mount.Path)
+		if strings.HasPrefix(urlWithoutScheme, mountPath) && bestMatchedLen < len(mountPath) {
+			bestMatchedLen = len(mountPath)
+			bestMatchedMount = mount
+		}
+	}
+
+	if bestMatchedLen == -1 {
+		return "Not found."
+	}
+
+	matchedPathPrefix := bestMatchedMount.Path
+	return bestMatchedMount.TargetFsPath + strings.TrimPrefix(urlWithoutScheme, matchedPathPrefix)
 }
 
 func clusterList(context *cli.Context) error {
