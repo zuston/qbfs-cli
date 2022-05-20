@@ -122,6 +122,16 @@ func main() {
 						},
 					},
 					{
+						Name:  "dump",
+						Usage: "dump the mount table to local file",
+						Flags: []cli.Flag{
+							&cli.StringFlag{Name: "output-file-path", Aliases: []string{"o"}},
+						},
+						Action: func(context *cli.Context) error {
+							return mountDump(context)
+						},
+					},
+					{
 						Name:  "list",
 						Usage: "list all mount entries",
 						Flags: []cli.Flag{
@@ -165,6 +175,32 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func mountDump(context *cli.Context) error {
+	var outputFilePath = context.String("output-file-path")
+	if outputFilePath == "" {
+		outputFilePath, _ = os.Getwd()
+	}
+	mounts, err := newRouterServerClient(context).listMounts()
+	if err != nil {
+		return err
+	}
+
+	if mountsJsonBytes, err := json.Marshal(mounts); err == nil {
+		filename := fmt.Sprintf("%s/%s.%d", outputFilePath, "mounts.dump", time.Now().Unix())
+		fmt.Println("-------------------------------")
+		if err := ioutil.WriteFile(filename, mountsJsonBytes, 0644); err != nil {
+			fmt.Println("ERROR: Fail to dump mounts.")
+			return err
+		} else {
+			fmt.Println("SUCCEED: dump mount tables to ", filename)
+		}
+	} else {
+		return err
+	}
+
+	return nil
 }
 
 func calTimeFunc(action func() error, number int) (int64, error) {
