@@ -80,22 +80,7 @@ func main() {
 						Name:  "list",
 						Usage: "list cluster info",
 						Action: func(context *cli.Context) error {
-							client := newRouterServerClient(context)
-							clusterInfos, err := client.listClusterInfos()
-							if err != nil {
-								return err
-							}
-
-							table := tablewriter.NewWriter(os.Stdout)
-							table.SetHeader([]string{"FS Scheme", "FS Authority", "Trash FS Path", "State"})
-
-							for _, info := range clusterInfos {
-								trashPath := fmt.Sprintf("%s://%s%s", info.ClusterIdentifier.FsScheme, info.ClusterIdentifier.FsAuthority, info.TrashPrefix)
-								table.Append([]string{info.ClusterIdentifier.FsScheme, info.ClusterIdentifier.FsAuthority, trashPath, info.State})
-							}
-							table.Render() // Send output
-
-							return nil
+							return clusterList(context)
 						},
 					},
 				},
@@ -139,29 +124,7 @@ func main() {
 							&cli.StringFlag{Name: "filter-cluster-id", Aliases: []string{"c"}},
 						},
 						Action: func(context *cli.Context) error {
-							var mounts, err = newRouterServerClient(context).listMounts()
-							if err != nil {
-								return err
-							}
-
-							table := tablewriter.NewWriter(os.Stdout)
-							table.SetHeader([]string{"QBFS URI", "Target FS Path", "Target FS ClusterID"})
-
-							clusterFilterCondition := context.String("filter-cluster-id")
-							lineCount := 0
-							for _, v := range mounts {
-								if clusterFilterCondition != "" && v.TargetClusterID != clusterFilterCondition {
-									continue
-								}
-								table.Append([]string{v.Path, v.TargetFsPath, v.TargetClusterID})
-								lineCount += 1
-							}
-
-							fmt.Println("-------------------------------")
-							fmt.Println("Mount entry size: ", lineCount)
-
-							table.Render() // Send output
-							return nil
+							return mountList(context)
 						},
 					},
 				},
@@ -175,6 +138,51 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func clusterList(context *cli.Context) error {
+	client := newRouterServerClient(context)
+	clusterInfos, err := client.listClusterInfos()
+	if err != nil {
+		return err
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"FS Scheme", "FS Authority", "Trash FS Path", "State"})
+
+	for _, info := range clusterInfos {
+		trashPath := fmt.Sprintf("%s://%s%s", info.ClusterIdentifier.FsScheme, info.ClusterIdentifier.FsAuthority, info.TrashPrefix)
+		table.Append([]string{info.ClusterIdentifier.FsScheme, info.ClusterIdentifier.FsAuthority, trashPath, info.State})
+	}
+	table.Render() // Send output
+
+	return nil
+}
+
+func mountList(context *cli.Context) error {
+	var mounts, err = newRouterServerClient(context).listMounts()
+	if err != nil {
+		return err
+	}
+
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"QBFS URI", "Target FS Path", "Target FS ClusterID"})
+
+	clusterFilterCondition := context.String("filter-cluster-id")
+	lineCount := 0
+	for _, v := range mounts {
+		if clusterFilterCondition != "" && v.TargetClusterID != clusterFilterCondition {
+			continue
+		}
+		table.Append([]string{v.Path, v.TargetFsPath, v.TargetClusterID})
+		lineCount += 1
+	}
+
+	fmt.Println("-------------------------------")
+	fmt.Println("Mount entry size: ", lineCount)
+
+	table.Render() // Send output
+	return nil
 }
 
 func mountDump(context *cli.Context) error {
